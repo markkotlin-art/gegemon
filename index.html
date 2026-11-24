@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>ГЕГЕМОН: Карта Мира</title>
+  <meta name="theme-color" content="#0b1628" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="Гегемон" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="worldCanvas"></canvas>
+
+    <!-- Экран загрузки -->
+    <div id="loading-screen">
+      <div class="load-box glass">
+        <div class="load-emblem">🌐</div>
+        <div class="load-title">ГЕГЕМОН: КАРТА МИРА</div>
+        <div class="load-sub" id="load-status">Инициализация картографического ядра...</div>
+        <div class="load-bar-track">
+          <div class="load-bar-fill" id="load-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Верхний баннер выбора страны -->
+    <div id="select-top" class="glass hidden">
+      <div class="select-brand">
+        <div class="select-title">ГЕГЕМОН: КАРТА МИРА</div>
+        <div class="select-hint">Нажмите на любую страну на карте, чтобы возглавить её</div>
+      </div>
+      <button class="list-toggle-btn hidden" id="btn-continue">▶ Продолжить</button>
+      <button class="list-toggle-btn" id="btn-toggle-picker">📋 Список</button>
+    </div>
+
+    <!-- Выдвижной поиск/список стран -->
+    <div id="country-picker" class="glass hidden">
+      <input type="text" id="country-search" class="search-input" placeholder="Поиск страны (Россия, США...)" autocomplete="off" />
+      <div class="picker-label" id="picker-label">Ключевые державы</div>
+      <div class="country-list" id="country-list"></div>
+    </div>
+
+    <!-- Компактная верхняя панель (во время игры) -->
+    <div id="top-bar" class="glass">
+      <div class="top-row-main">
+        <div class="top-nation" id="btn-center-cap" title="Перейти к столице">
+          <span class="top-flag" id="hud-flag">🇷🇺</span>
+          <div>
+            <div class="top-nation-name" id="hud-country">Россия</div>
+            <div class="top-nation-sub"><span id="hud-provs">0 пров.</span> • 🌍 <span id="hud-pct">0.0%</span></div>
+          </div>
+        </div>
+
+        <div class="res-strip">
+          <div class="res-pill" title="Казна и ежемесячный доход">
+            <span>💰</span>
+            <span class="res-val" id="hud-money">0</span>
+            <span class="res-delta" id="hud-inc">+0</span>
+          </div>
+          <div class="res-pill" title="Численность армии и рекруты/мес">
+            <span>⚔️</span>
+            <span class="res-val" id="hud-army">0</span>
+            <span class="res-delta" id="hud-mp">+0</span>
+          </div>
+          <div class="res-pill" id="pill-food" title="Продовольствие: склад и баланс в месяц">
+            <span>🌾</span>
+            <span class="res-val" id="hud-food">0</span>
+            <span class="res-delta" id="hud-food-d">+0</span>
+          </div>
+          <div class="res-pill" id="pill-fuel" title="Топливо: склад и баланс в месяц">
+            <span>🛢</span>
+            <span class="res-val" id="hud-fuel">0</span>
+            <span class="res-delta" id="hud-fuel-d">+0</span>
+          </div>
+          <div class="res-pill" id="pill-steel" title="Сталь: склад и баланс в месяц">
+            <span>🔩</span>
+            <span class="res-val" id="hud-steel">0</span>
+            <span class="res-delta" id="hud-steel-d">+0</span>
+          </div>
+          <div class="res-pill" title="Очки дипломатии">
+            <span>🏛️</span>
+            <span class="res-val" id="hud-diplo">0</span>
+          </div>
+        </div>
+
+        <div class="controls-cluster">
+          <div class="date-pill" id="hud-date">Янв 2026</div>
+          <button class="hud-btn active" id="btn-speed" title="Скорость времени (Пауза / 1x / 2x / 3x)">1x</button>
+          <button class="hud-btn" id="btn-mapmode" title="Режим карты">🗺️ Полит.</button>
+          <button class="hud-btn" id="btn-sound" title="Звук">🔊</button>
+          <button class="hud-btn" id="btn-market" title="Рынок ресурсов">🏪</button>
+          <button class="hud-btn" id="btn-help" title="Справка">?</button>
+          <button class="hud-btn" id="btn-menu" title="Меню: сохранение">☰</button>
+        </div>
+      </div>
+      <div class="world-progress-line">
+        <div class="world-progress-fill" id="hud-world-bar"></div>
+      </div>
+    </div>
+
+    <!-- Контекстная выдвижная панель (снизу на мобильных, справа на десктопе) -->
+    <div id="command-drawer" class="glass"></div>
+
+    <!-- Сворачиваемая хроника событий -->
+    <div id="news-box" class="glass collapsed">
+      <div class="news-head" id="news-toggle">
+        <span>📡 Хроника</span>
+        <span id="news-arrow">▲</span>
+      </div>
+      <div class="news-body" id="news-body"></div>
+    </div>
+
+    <!-- Кнопки зума -->
+    <div id="zoom-controls" class="glass">
+      <button class="zoom-btn" id="btn-zin" title="Приблизить">+</button>
+      <button class="zoom-btn" id="btn-zout" title="Отдалить">−</button>
+      <button class="zoom-btn" id="btn-zreset" title="Весь мир" style="font-size:13px;">⌖</button>
+    </div>
+
+    <!-- Тултип (десктоп) -->
+    <div id="tooltip" class="glass"></div>
+
+    <!-- Тосты -->
+    <div id="toast-wrap"></div>
+
+    <!-- Модальное окно -->
+    <div id="modal-backdrop">
+      <div class="modal-box glass" id="modal-box"></div>
+    </div>
+  </div>
+
+  <script src="data/countries-110m.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/offline-map.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/military.js"></script>
+  <script src="js/economy.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/diplomacy.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
