@@ -19,7 +19,7 @@ function processMonth() {
     for (const pid of c.provinces) {
       const p = game.provinces[pid];
       // при голоде новобранцев нет
-      if (!c.starving) p.troops += 8 + p.economy * 9 + (p.isCapital ? 14 : 0);
+      if (!c.starving) p.troops += provDraftGrowth(p);
     }
   }
   for (const [, rel] of game.relations) {

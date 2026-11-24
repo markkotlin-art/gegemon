@@ -206,6 +206,14 @@ function renderOwnProvDrawer(p) {
       </div>
     </div>
 
+    <div>
+      <div class="sec-title">📜 Призыв в провинции: +${fmtNum(provDraftGrowth(p))} пехоты/мес</div>
+      <div class="btn-row-4">
+        ${DRAFT_LEVELS.map((v) => `<button class="btn btn-sm draft-btn ${(p.draft === undefined ? 1 : p.draft) === v ? 'active' : ''}" data-draft="${v}" title="${v === 0 ? 'Призыв выключен: пехота не растёт и не ест зерно' : 'Прирост пехоты ' + Math.round(v * 100) + '% от обычного'}">${v === 0 ? 'Выкл' : Math.round(v * 100) + '%'}</button>`).join('')}
+      </div>
+      <div style="margin-top:6px;"><button class="btn btn-sm" id="btn-draft-all">Применить ко всем моим провинциям</button></div>
+    </div>
+
     <div class="yield-line">Даёт в месяц: ${RES_KEYS.map((k) => `${RES_DEFS[k].icon} ${yieldNow[k].toFixed(1)}`).join(' &nbsp; ')}</div>
 
     <div>
@@ -245,6 +253,15 @@ function renderOwnProvDrawer(p) {
   drawer.classList.add('open');
 
   document.getElementById('btn-close-drawer').onclick = () => { game.selectedProvId = null; drawer.classList.remove('open'); };
+  drawer.querySelectorAll('.draft-btn').forEach((b) => {
+    b.onclick = () => { p.draft = Number(b.dataset.draft); updateHud(); refreshDrawer(); };
+  });
+  document.getElementById('btn-draft-all').onclick = () => {
+    const v = p.draft === undefined ? 1 : p.draft;
+    for (const pid of player.provinces) game.provinces[pid].draft = v;
+    pushToast(v === 0 ? '📜 Призыв выключен во всех провинциях' : `📜 Призыв ${Math.round(v * 100)}% во всех провинциях`, 'good');
+    updateHud(); refreshDrawer();
+  };
   document.getElementById('btn-r100').onclick = () => recruit(p, 100);
   document.getElementById('btn-r500').onclick = () => recruit(p, 500);
   const buy = (type, amt) => { if (buyUnits(game.playerId, p.id, type, amt)) { sfx.recruit(); updateHud(); refreshDrawer(); } };

@@ -10,8 +10,8 @@
 // -----------------------------------------------------------------------
 const SAVE_KEY = 'gegemon.save';
 const PREV_KEY = 'gegemon.save.prev'; // предыдущая партия: не затирается, когда начинаешь новую
-const SAVE_VERSION = 3;
-const PROV_SAVE_FIELDS = ['ownerId', 'isCapital', 'troops', 'tanks', 'air', 'fort', 'economy'];
+const SAVE_VERSION = 4;
+const PROV_SAVE_FIELDS = ['ownerId', 'isCapital', 'troops', 'tanks', 'air', 'fort', 'economy', 'draft'];
 const COUNTRY_SAVE_FIELDS = ['money', 'diplo', 'alive', 'isAI', 'capitalProvId', 'aiAggression', 'res', 'starving', 'noFuel', 'honor', 'grudge', 'warPlan', 'offerUntil'];
 const MARCH_SAVE_FIELDS = ['ownerId', 'fromId', 'toId', 'troops', 'tanks', 'air', 'isAttack', 'isSea', 'progress', 'duration'];
 
@@ -146,6 +146,11 @@ function migrateSave(data) {
   }
   // v2 → v3: репутация, обиды, планы войны ИИ (недостающие поля берутся из свежего мира)
   if (data.v < 3) data.v = 3;
+  // v3 → v4: ограничение призыва по провинциям (нет в старых сохранениях → остаётся полный призыв)
+  if (data.v < 4) {
+    for (const sp of data.provinces || []) if (sp && sp.draft === undefined) sp.draft = 1;
+    data.v = 4;
+  }
   return data;
 }
 

@@ -7,12 +7,13 @@
 // -----------------------------------------------------------------------
 function getCountryStats(cid) {
   const c = game.countries[cid];
-  let eco = 0;
+  let eco = 0, manpower = 0;
   const units = emptyArmy();
   for (const pid of c.provinces) {
     const p = game.provinces[pid];
     addArmy(units, p);
     eco += p.economy;
+    manpower += provDraftGrowth(p);
   }
   for (const m of game.marches) {
     if (m.ownerId === cid) addArmy(units, m);
@@ -23,7 +24,7 @@ function getCountryStats(cid) {
     eco,
     provCount: c.provinces.length,
     income: Math.round(28 + eco * 13),
-    manpower: Math.round(16 + eco * 11)
+    manpower: c.starving ? 0 : manpower
   };
 }
 
@@ -197,6 +198,7 @@ function transferProvince(pid, newOwnerId, survivors) {
   const idx = oldC.provinces.indexOf(pid);
   if (idx !== -1) oldC.provinces.splice(idx, 1);
   newC.provinces.push(pid);
+  p.draft = 1;   // у захваченной провинции призыв снова полный
 
   const wasCap = p.isCapital;
   p.ownerId = newOwnerId;

@@ -131,6 +131,7 @@ async function buildWorld() {
         area,
         economy,
         fort: 0,
+        draft: 1,           // доля призыва: 1 / 0.5 / 0.25 / 0 (выключен)
         troops: 140 + economy * 70,
       tanks: 0,
       air: 0,

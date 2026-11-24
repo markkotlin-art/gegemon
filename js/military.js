@@ -67,3 +67,13 @@ function halfArmy(p, minTroops = 0) {
   a.troops = Math.max(minTroops, a.troops);
   return a;
 }
+
+// ---------------------------------------------------------------- Призыв
+// Ежемесячный прирост пехоты в провинции. Игрок может ограничить призыв (p.draft = 1 / 0.5 / 0.25 / 0)
+const DRAFT_LEVELS = [1, 0.5, 0.25, 0];
+function provDraftBase(p) {
+  return 8 + p.economy * 9 + (p.isCapital ? 14 : 0);
+}
+function provDraftGrowth(p) {
+  return Math.round(provDraftBase(p) * (p.draft === undefined ? 1 : p.draft));
+}
