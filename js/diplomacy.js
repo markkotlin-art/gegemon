@@ -119,6 +119,8 @@ function peaceScore(aiId, enemyId, tribute = 0) {
   if (vPow < 0 && myWS <= thWS) vPow *= Math.max(0.25, 1 - Math.max(0, months - 6) / 18);
   addReason(R, vPow, vPow > 0 ? `${ai.name} уступает по силам` : `${ai.name} сильнее и рассчитывает на победу`);
 
+  if ((ai.ceasefireUntil || 0) > (game.totalDays || 0)) addReason(R, 1.0, 'Совбез ООН требует прекратить огонь');
+
   // 2. Ход войны: кто больше захватил
   const vMom = Math.max(-1.5, Math.min(1.5, (thWS - myWS) * 0.45));
   addReason(R, vMom, vMom > 0 ? `${ai.name} теряет земли` : `${ai.name} наступает и берёт земли`);
@@ -210,12 +212,14 @@ function allianceScore(aiId, otherId) {
 
   // Репутация
   addReason(R, (ot.honor - 70) / 35, ot.honor >= 70 ? `${ot.name} держит слово` : `${ot.name} ненадёжный партнёр`);
+  if (scenarioActive()) { const op = getOpinion(aiId, otherId); addReason(R, op / 40, op >= 0 ? 'хорошие отношения' : 'плохие отношения'); }
 
   // Перегруз союзами
-  const nAll = alliesOf(aiId).length;
+  // союзники по военному блоку (Мир 2010) в лимит не входят — это отдельное обязательство
+  const nAll = adhocAllyCount(aiId);
   if (nAll >= 4) return hard('у нас уже слишком много союзников');
   if (nAll >= 1) addReason(R, -0.7 * nAll, 'у нас уже есть союзники');
-  if (alliesOf(otherId).length >= 4) return hard(`у ${ot.name} уже слишком много союзников`);
+  if (adhocAllyCount(otherId) >= 4) return hard(`у ${ot.name} уже слишком много союзников`);
 
   // Риск втянуться в чужие войны
   let drag = 0, dragNames = [];
@@ -249,6 +253,7 @@ function pactScore(aiId, otherId) {
   if (myS > otS * 2 && areNeighbors(aiId, otherId) && ai.aiAggression > 0.5) addReason(R, -1.6, `${ai.name} видит в ${ot.name} лёгкую добычу`);
   if (ai.warPlan && ai.warPlan.targetId === otherId) addReason(R, -3, 'уже готовит нападение');
   addReason(R, (ot.honor - 70) / 50, ot.honor >= 70 ? 'репутация надёжна' : 'репутация подпорчена');
+  if (scenarioActive()) { const op = getOpinion(aiId, otherId); addReason(R, op / 60, op >= 0 ? 'хорошие отношения' : 'плохие отношения'); }
   if (rel.lastWar !== undefined) addReason(R, -0.6 * Math.max(0, 1 - (game.totalMonths - rel.lastWar) / 18), 'недавно воевали');
   return finishScore(R, pairNoise(aiId, otherId, 2) * 0.4);
 }
@@ -295,19 +300,23 @@ function offerToPlayer(offer) {
 }
 
 function checkOffers() {
-  if (game.phase !== 'playing' || !pendingOffers.length) return;
+  if (game.phase !== 'playing') return;
+  if (!pendingOffers.length) { if (typeof checkDecisions === 'function') checkDecisions(); return; }
   if (modalBackdrop.classList.contains('visible')) return;
   const o = pendingOffers.shift();
   const c = game.countries[o.fromId];
   if (!c.alive) { checkOffers(); return; }
   if (o.kind === 'peace' && !isAtWar(o.fromId, game.playerId)) { checkOffers(); return; }
   if (o.kind === 'ally' && getRelation(o.fromId, game.playerId).status !== 'neutral' && getRelation(o.fromId, game.playerId).status !== 'pact') { checkOffers(); return; }
+  if (o.kind === 'trade' && (hasTrade(o.fromId, game.playerId) || isAtWar(o.fromId, game.playerId))) { checkOffers(); return; }
+  const TITLES = { peace: '🕊️ Предложение мира', ally: '🤝 Предложение союза', trade: '📦 Предложение торговли' };
+  const TEXTS = { peace: 'предлагает закончить войну. Захваченные провинции останутся за теми, кто ими владеет.', ally: 'предлагает заключить союз.', trade: 'предлагает подписать торговое соглашение.' };
   const prevSpeed = game.speed;
   game.speed = 0; updateSpeedBtn();
   const resume = () => { if (game.phase === 'playing') { game.speed = prevSpeed; updateSpeedBtn(); } checkOffers(); };
   modalBox.innerHTML = `
-    <div class="modal-title">${o.kind === 'peace' ? '🕊️ Предложение мира' : '🤝 Предложение союза'}</div>
-    <div class="modal-body">${c.flag} <strong>${c.name}</strong> ${o.kind === 'peace' ? 'предлагает закончить войну. Захваченные провинции останутся за теми, кто ими владеет.' : 'предлагает заключить союз.'}
+    <div class="modal-title">${TITLES[o.kind]}</div>
+    <div class="modal-body">${c.flag} <strong>${c.name}</strong> ${TEXTS[o.kind]}
       <div class="mk-name"><small>${o.why || ''}</small></div></div>
     <div class="modal-actions">
       <button class="btn" id="m-no">Отказать</button>
@@ -370,7 +379,7 @@ function aiAlliance(c) {
   let threatened = false;
   const myS = info.strength;
   for (const n of info.nbrs) if (game.countries[n].alive && strengthOf(n) > myS * 1.4 && !game.allies[c.id].has(n)) { threatened = true; break; }
-  const chance = 0.025 * (inWar || threatened ? 3 : 1);
+  const chance = 0.025 * (inWar || threatened ? 3 : 1) * allianceSearchFactor();
   if (Math.random() > chance) return;
 
   const cands = [...info.nbrs].filter((id) => game.countries[id].alive);
@@ -415,9 +424,12 @@ function aiPact(c) {
 // ---------------------------------------------------------------- ВОЙНА: выбор цели и подготовка
 function warTargetScore(c, tid) {
   const t = game.countries[tid];
-  const mine = blocStrength(c.id), theirs = blocStrength(tid);
+  if (scenarioForbidsWar(c.id, tid)) return null;
+  const opT = scenarioActive() ? getOpinion(c.id, tid) : 0;
+  if (opT >= 30) return null;   // на друзей не нападают (Мир 2010)   // ядерное сдерживание, «демократический мир» (Мир 2010)
+  const mine = offenseStrength(c.id), theirs = blocStrength(tid);
   const ratio = mine / (theirs + 1);
-  const need = 2.0 - c.aiAggression * 0.9;
+  const need = 2.0 - c.aiAggression * 0.9 + warRatioExtra();
   if (ratio < need) return null;
   let s = (ratio - need) * 1.2;
   const why = [`сильнее в ${ratio.toFixed(1)} раза`];
@@ -436,6 +448,7 @@ function warTargetScore(c, tid) {
   s += Math.min(1.5, eco / 8);
   const grudge = c.grudge ? (c.grudge[tid] || 0) : 0;
   s += Math.min(2, grudge * 0.5);
+  if (opT < -30) s += Math.min(0.8, (-opT - 30) / 80);   // застарелая вражда подталкивает к войне
   // Добивание ослабленных
   s += Math.min(1.2, enemiesOf(tid).length * 0.4);
   if (t.starving) s += 0.5;
@@ -459,7 +472,7 @@ function aiWarPlan(c) {
   }
   if (warsNow >= 1) return;                              // сначала закончить текущую войну
   if (c.starving || c.money < 300) return;
-  if (Math.random() > 0.02 + c.aiAggression * 0.05) return;
+  if (Math.random() > (0.02 + c.aiAggression * 0.05) * warPlanFactor()) return;
   let best = null;
   for (const tid of dipInfo(c.id).nbrs) {
     const t = game.countries[tid];

@@ -28,15 +28,18 @@ const game = {
   sendPercent: 75,
   mapMode: 'political', // 'political' | 'diplomatic' | 'military'
 
-  speed: 1, // 0, 1, 2, 3
+  speed: 1, // 0 (пауза) или одно из SPEED_STEPS
   year: 2026,
   month: 0,
-  dayFloat: 0,
+  dayFloat: 0,        // день месяца, 0…30 (дробный)
   totalMonths: 0,
+  totalDays: 0,
   aiTimer: 0,
 
   marches: [],
-  battles: [],
+  fights: [],         // идущие бои (battle.js)
+  nextFightId: 1,
+  battles: [],        // вспышки окончания боёв (только картинка)
   events: [],
 
   // Кэшированные Path2D границ (пересобираются только при захвате провинций)

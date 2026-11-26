@@ -210,6 +210,8 @@ async function buildWorld() {
 
   initResources();
   initDiploIndex();
+  snapshotBaseline();   // «чистый лист» — чтобы сценарий можно было снять без перезагрузки
+  initModeSwitch();
   setProgress(100, 'Карта мира готова!');
   await tickYield();
 

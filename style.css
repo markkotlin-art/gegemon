@@ -204,11 +204,11 @@
     /* Выдвижной список стран для быстрого поиска */
     #country-picker {
       position: absolute;
-      top: calc(68px + var(--safe-top));
+      top: calc(88px + var(--safe-top));
       left: 10px;
       z-index: 28;
       width: min(270px, calc(100vw - 20px));
-      max-height: calc(100dvh - 150px);
+      max-height: calc(100dvh - 170px);
       border-radius: 14px;
       padding: 11px;
       display: flex;
@@ -844,3 +844,140 @@
     .mk-qty { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .mk-qty input { width: 90px; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.4); background: rgba(15, 23, 42, 0.8); color: #f8fafc; font: inherit; font-size: 13px; }
     .mk-row.mk-col .mk-btns { justify-content: flex-end; }
+
+    /* =========================================================================
+       СЦЕНАРИИ: переключатель режима, сводка страны, блоки
+       ========================================================================= */
+    .hud-btn.hidden { display: none; }
+    .mode-switch { display: flex; gap: 5px; margin-top: 5px; }
+    .mode-btn {
+      border: 1px solid var(--hq-border-hi);
+      background: rgba(30, 41, 59, 0.7);
+      color: #cbd5e1;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mode-btn.active { background: rgba(250, 204, 21, 0.18); border-color: rgba(250, 204, 21, 0.7); color: #fde047; }
+    @media (max-width: 520px) { #select-top .select-hint { display: none; } }
+
+    .facts-box {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 8px 10px; border-radius: 10px;
+      background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+    .facts-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: #e2e8f0; }
+    .nuke-tag { font-size: 10.5px; font-weight: 800; color: #fbbf24; white-space: nowrap; }
+    .facts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .facts-grid div { display: flex; flex-direction: column; min-width: 0; }
+    .facts-grid span { font-size: 10px; color: var(--muted); }
+    .facts-grid strong { font-size: 12.5px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bloc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .bloc-chip {
+      --bc: #94a3b8;
+      font-size: 10.5px; font-weight: 700; line-height: 1;
+      padding: 4px 7px; border-radius: 999px;
+      color: #f1f5f9;
+      background: color-mix(in srgb, var(--bc) 22%, transparent);
+      border: 1px solid color-mix(in srgb, var(--bc) 65%, transparent);
+      white-space: nowrap;
+    }
+    .bloc-chip.mil { font-weight: 800; }
+    .bloc-chip.none { --bc: #64748b; color: #94a3b8; }
+    .modal-sub-title { font-family: 'Oswald', sans-serif; font-size: 13px; letter-spacing: 0.06em; color: #fde047; text-transform: uppercase; }
+    .bloc-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(148, 163, 184, 0.12); }
+    .bloc-row-head { display: flex; align-items: center; gap: 8px; }
+    .bloc-row small { font-size: 11px; color: #94a3b8; line-height: 1.4; }
+    .bloc-row .btn { width: auto; flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
+    .bloc-row-head small { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bloc-row-head .bloc-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .modal-scroll { max-height: calc(100dvh - 170px); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+    .bloc-row-head .btn { margin-left: auto; }
+    #map-legend {
+      position: absolute; left: 10px; bottom: calc(52px + var(--safe-bottom, 0px)); z-index: 20;
+      display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: min(300px, calc(100vw - 80px));
+      padding: 7px 10px; border-radius: 12px; font-size: 10.5px; color: #cbd5e1; pointer-events: none;
+    }
+    #map-legend.hidden { display: none; }
+    #map-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    #map-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+    /* ---- затяжные бои ---- */
+    .fight-box { border: 1px solid rgba(248, 113, 113, 0.45); background: rgba(127, 29, 29, 0.18); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .fight-head { font-weight: 800; color: #fecaca; display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+    .fight-head span { font-weight: 600; color: #fde68a; font-size: 11px; }
+    .fight-sides { display: flex; justify-content: space-between; gap: 8px; }
+    .fight-sides .fs { display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: #f1f5f9; }
+    .fight-sides .fs small { color: #94a3b8; font-size: 10.5px; }
+    .fight-sides .fs.def { text-align: right; }
+    .fight-bar { height: 8px; border-radius: 4px; background: #60a5fa; overflow: hidden; }
+    .fight-bar i { display: block; height: 100%; background: #ef4444; }
+    .fight-fc { font-size: 11.5px; font-weight: 700; }
+    .fight-fc.good { color: #6ee7b7; }
+    .fight-fc.bad { color: #fca5a5; }
+    .fight-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ap-box { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; }
+    .ap-box label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: #e2e8f0; cursor: pointer; }
+
+    /* =========================================================================
+       ГЕОЭКОНОМИКА (Мир 2010): постройки, секторы, торговля, заявления
+       ========================================================================= */
+    .btn-row-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .bld-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+    .bld-chip {
+      font-size: 10.5px; font-weight: 700; padding: 4px 7px; border-radius: 8px;
+      background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.35); color: #fde68a; white-space: nowrap;
+    }
+    .bld-progress {
+      position: relative; overflow: hidden; margin-bottom: 6px; padding: 6px 8px; border-radius: 8px;
+      background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.2); font-size: 11px; color: #e2e8f0;
+    }
+    .bld-progress span { position: relative; z-index: 1; }
+    .bld-progress i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(52, 211, 153, 0.22); }
+    .bld-list { display: grid; grid-template-columns: 1fr; gap: 5px; }
+    .bld-btn { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name cost' 'info cost'; align-items: center; text-align: left; gap: 1px 8px; padding: 7px 9px; }
+    .bld-btn .bld-name { grid-area: name; font-weight: 700; }
+    .bld-btn small { grid-area: info; font-size: 10.5px; color: #94a3b8; font-weight: 500; white-space: normal; }
+    .bld-btn .cost-tag { grid-area: cost; }
+    .state-tabs { display: flex; gap: 4px; margin-bottom: 8px; overflow-x: auto; }
+    .state-tab {
+      flex: 1 0 auto; border: 1px solid var(--hq-border-hi); background: rgba(30, 41, 59, 0.7); color: #cbd5e1;
+      border-radius: 9px; padding: 6px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+    }
+    .state-tab.active { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.6); color: #e0f2fe; }
+    .sec-bar { position: relative; display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 7px; overflow: hidden; background: rgba(15, 23, 42, 0.55); font-size: 11px; color: #e2e8f0; }
+    .sec-bar span, .sec-bar b { position: relative; z-index: 1; white-space: nowrap; }
+    .sec-bar b { font-weight: 700; color: #f8fafc; }
+    .sec-bar i { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.28; }
+    .trade-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(15, 23, 42, 0.5); font-size: 12px; color: #e2e8f0; }
+    .trade-row:has(button) { grid-template-columns: 1fr auto auto auto; }
+    .trade-row small { font-size: 10.5px; color: #94a3b8; white-space: nowrap; }
+    .trade-row b { white-space: nowrap; }
+    .trade-row .btn { width: auto; padding: 4px 8px; }
+    .stmt-btn { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name cost' 'info cost'; text-align: left; gap: 2px 8px; }
+    .stmt-btn > span:first-child { grid-area: name; font-weight: 700; }
+    .stmt-btn small { grid-area: info; font-size: 10.5px; color: #94a3b8; font-weight: 500; white-space: normal; }
+    .stmt-btn .cost-tag { grid-area: cost; align-self: center; }
+
+    /* =========================================================================
+       МИРОВАЯ ПОЛИТИКА: кризисы, ООН, вступление, окна решений
+       ========================================================================= */
+    .crisis-card { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: 10px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.15); }
+    .crisis-card small { font-size: 11px; color: #94a3b8; line-height: 1.4; }
+    .crisis-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; color: #f1f5f9; }
+    .crisis-head small { white-space: nowrap; }
+    .crisis-opts { display: flex; flex-wrap: wrap; gap: 5px; }
+    .crisis-opts .btn { width: auto; flex: 1 1 auto; padding: 6px 9px; }
+    .crisis-opts .btn.active { border-color: rgba(56, 189, 248, 0.8); background: rgba(56, 189, 248, 0.2); }
+    .crisis-card .my-stance { color: #7dd3fc; font-weight: 700; }
+    .stance-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .stance-chip { font-size: 10.5px; padding: 3px 7px; border-radius: 7px; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+    .decision-actions { flex-direction: column; align-items: stretch; }
+    .decision-actions .btn { width: 100%; justify-content: flex-start; text-align: left; flex-direction: column; align-items: flex-start; gap: 2px; }
+    .decision-actions .btn small { font-size: 10.5px; font-weight: 500; color: #94a3b8; white-space: normal; }
+    .propose-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+    .propose-row select { min-width: 0; background: rgba(15, 23, 42, 0.8); color: #f1f5f9; border: 1px solid var(--hq-border-hi); border-radius: 8px; padding: 6px; font-size: 11.5px; }
+    @media (max-width: 520px) { .propose-row { grid-template-columns: 1fr; } }

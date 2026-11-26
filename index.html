@@ -36,6 +36,10 @@
       <div class="select-brand">
         <div class="select-title">ГЕГЕМОН: КАРТА МИРА</div>
         <div class="select-hint">Нажмите на любую страну на карте, чтобы возглавить её</div>
+        <div class="mode-switch" id="mode-switch">
+          <button class="mode-btn active" data-mode="" title="Все страны равны, мир с чистого листа">🌐 Песочница</button>
+          <button class="mode-btn" data-mode="2010" title="Реальная геополитика 2010 года: НАТО, ЕС, ОДКБ, режимы, экономика по ВВП">🏛 Мир 2010</button>
+        </div>
       </div>
       <button class="list-toggle-btn hidden" id="btn-continue">▶ Продолжить</button>
       <button class="list-toggle-btn" id="btn-toggle-picker">📋 Список</button>
@@ -96,6 +100,8 @@
           <button class="hud-btn active" id="btn-speed" title="Скорость времени (Пауза / 1x / 2x / 3x)">1x</button>
           <button class="hud-btn" id="btn-mapmode" title="Режим карты">🗺️ Полит.</button>
           <button class="hud-btn" id="btn-sound" title="Звук">🔊</button>
+          <button class="hud-btn hidden" id="btn-state" title="Государство: режим, экономика, блоки">🏛</button>
+          <button class="hud-btn hidden" id="btn-world" title="Мировая политика: кризисы, ООН, вступление в организации">🌐</button>
           <button class="hud-btn" id="btn-market" title="Рынок ресурсов">🏪</button>
           <button class="hud-btn" id="btn-help" title="Справка">?</button>
           <button class="hud-btn" id="btn-menu" title="Меню: сохранение">☰</button>
@@ -118,6 +124,16 @@
       <div class="news-body" id="news-body"></div>
     </div>
 
+    <!-- Легенда карты блоков (режим «Мир 2010») -->
+    <div id="map-legend" class="glass hidden">
+      <span><i style="background:#2f6fd6"></i>НАТО</span>
+      <span><i style="background:#c23434"></i>ОДКБ</span>
+      <span><i style="background:#60a5fa"></i>Договоры с США</span>
+      <span><i style="background:#f97316"></i>Китай–КНДР</span>
+      <span><i style="background:#c9a227"></i>ЕС вне НАТО</span>
+      <span><i style="background:#3e4a5c"></i>Вне блоков</span>
+    </div>
+
     <!-- Кнопки зума -->
     <div id="zoom-controls" class="glass">
       <button class="zoom-btn" id="btn-zin" title="Приблизить">+</button>
@@ -138,6 +154,7 @@
   </div>
 
   <script src="data/countries-110m.js"></script>
+  <script src="data/scenario-2010.js"></script>
   <script src="js/config.js"></script>
   <script src="js/offline-map.js"></script>
   <script src="js/geo.js"></script>
@@ -148,7 +165,11 @@
   <script src="js/economy.js"></script>
   <script src="js/sim.js"></script>
   <script src="js/diplomacy.js"></script>
+  <script src="js/scenario.js"></script>
+  <script src="js/geoeconomy.js"></script>
+  <script src="js/worldorder.js"></script>
   <script src="js/ai.js"></script>
+  <script src="js/battle.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/render.js"></script>
   <script src="js/camera.js"></script>

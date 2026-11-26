@@ -34,7 +34,7 @@ function populateCountryList(query = '') {
         <span>${c.flag}</span>
         <span class="country-row-name">${c.name}</span>
       </div>
-      <span class="country-row-meta">${c.provinces.length} пров.</span>
+      <span class="country-row-meta">${scenarioActive() && c.gdp ? fmtGdp(c.gdp) : c.provinces.length + ' пров.'}</span>
     `;
     row.addEventListener('click', () => {
       sfx.click();
@@ -65,6 +65,7 @@ function inspectCountryPreGame(cid) {
       </div>
       <button class="close-btn" id="btn-close-drawer">✕</button>
     </div>
+    ${countryFactsHtml(cid)}
     <div class="stat-grid">
       <div class="stat-cell">
         <span class="stat-lbl">Стартовая армия</span>
@@ -104,7 +105,12 @@ function startCampaign(cid) {
   const cap = game.provinces[c.capitalProvId || c.provinces[0]];
   if (cap) focusCamera(cap.cx, cap.cy, Math.max(1.7, Math.min(3.2, 220 / Math.sqrt(cap.area + 240))));
 
-  addNews(`🏛️ Вы возглавили ${c.flag} ${c.name}. Захватите 60% мира!`, 'ally', cap?.cx ?? null, cap?.cy ?? null);
+  if (scenarioActive()) {
+    const blocs = countryBlocs(cid).filter(isMilBloc).map((b) => BLOC_DEFS[b].name);
+    addNews(`🏛️ 1 января 2010 года. Вы возглавили ${c.flag} ${c.name}${blocs.length ? ` (${blocs.join(', ')})` : ''}. Сведения о стране — кнопка 🏛.`, 'ally', cap?.cx ?? null, cap?.cy ?? null);
+  } else {
+    addNews(`🏛️ Вы возглавили ${c.flag} ${c.name}. Захватите 60% мира!`, 'ally', cap?.cx ?? null, cap?.cy ?? null);
+  }
   pushToast(`Кампания за ${c.flag} ${c.name} началась! Нажмите на свою провинцию.`, 'good');
   updateSpeedBtn();
   updateHud();
@@ -122,6 +128,9 @@ function enterPlayingUI(cid) {
   drawer.classList.remove('open');
 
   const c = game.countries[cid];
+  document.getElementById('btn-state').classList.toggle('hidden', !scenarioActive());
+  document.getElementById('btn-world').classList.toggle('hidden', !scenarioActive());
+  updateMapLegend();
   document.getElementById('hud-flag').textContent = c.flag;
   document.getElementById('hud-country').textContent = c.name;
 }
@@ -148,7 +157,7 @@ function updateHud() {
     d.classList.toggle('neg', net < 0);
     document.getElementById('pill-' + k).classList.toggle('alert', (k === 'food' && c.starving) || (k === 'fuel' && c.noFuel));
   }
-  document.getElementById('hud-date').textContent = `${MONTHS_RU[game.month]} ${game.year}`;
+  document.getElementById('hud-date').textContent = `${Math.floor(game.dayFloat) + 1} ${MONTHS_RU[game.month]} ${game.year}`;
   document.getElementById('hud-world-bar').style.width = Math.min(100, (pct / 60) * 100) + '%';
 }
 
@@ -187,6 +196,8 @@ function renderOwnProvDrawer(p) {
       </div>
       <button class="close-btn" id="btn-close-drawer">✕</button>
     </div>
+
+    ${fightPanelHtml(p.id)}
 
     <div class="stat-grid">
       <div class="stat-cell">
@@ -240,11 +251,13 @@ function renderOwnProvDrawer(p) {
         <span>🛡 ${p.fort >= 2 ? 'Форт макс. уровня' : 'Построить форт (+45% защ.)'}</span>
         ${p.fort < 2 ? `<span class="cost-tag">${fortCost}💰 ${fortSteel}🔩</span>` : ''}
       </button>
-      <button class="btn" id="btn-eco" ${player.money < ecoCost || p.economy >= 12 ? 'disabled' : ''}>
+      ${scenarioActive() ? '' : `<button class="btn" id="btn-eco" ${player.money < ecoCost || p.economy >= 12 ? 'disabled' : ''}>
         <span>🏭 Развить экономику (+13💰/мес)</span>
         <span class="cost-tag">${ecoCost}💰</span>
-      </button>
+      </button>`}
     </div>
+
+    ${buildingsPanelHtml(p)}
 
     <div class="order-hint">
       Нажмите на подсвеченного соседа (<span style="color:#6ee7b7;">зелёный</span> — переброска, <span style="color:#fca5a5;">красный</span> — атака / морской десант).
@@ -253,6 +266,7 @@ function renderOwnProvDrawer(p) {
   drawer.classList.add('open');
 
   document.getElementById('btn-close-drawer').onclick = () => { game.selectedProvId = null; drawer.classList.remove('open'); };
+  bindFightPanel(drawer);
   drawer.querySelectorAll('.draft-btn').forEach((b) => {
     b.onclick = () => { p.draft = Number(b.dataset.draft); updateHud(); refreshDrawer(); };
   });
@@ -274,7 +288,9 @@ function renderOwnProvDrawer(p) {
     if (!canFort) return;
     player.money -= fortCost; player.res.steel -= fortSteel; p.fort++; sfx.build(); updateHud(); refreshDrawer();
   };
-  document.getElementById('btn-eco').onclick = () => {
+  bindBuildingsPanel(drawer, p);
+  const bEco = document.getElementById('btn-eco');
+  if (bEco) bEco.onclick = () => {
     if (player.money < ecoCost || p.economy >= 12) return;
     player.money -= ecoCost; p.economy++; sfx.build(); updateHud(); refreshDrawer();
   };
@@ -305,6 +321,8 @@ function renderForeignDrawer(tid, prov) {
 
   let badge = '<span class="status-pill st-neu">⚪ Нейтралитет</span>';
   if (rel.status === 'war') badge = '<span class="status-pill st-war">⚔️ Война</span>';
+  const allyBloc = rel.status === 'ally' ? sharedMilBloc(game.playerId, tid) : null;
+  if (allyBloc) badge = `<span class="status-pill st-ally">🛡 Союзник · ${BLOC_DEFS[allyBloc].name}</span>`;
   else if (rel.status === 'ally') badge = '<span class="status-pill st-ally">🤝 Союзник</span>';
   else if (hasPact(game.playerId, tid)) badge = `<span class="status-pill st-pact">🕊️ Пакт (${rel.pactUntil - game.totalMonths} мес.)</span>`;
 
@@ -339,10 +357,16 @@ function renderForeignDrawer(tid, prov) {
       <button class="close-btn" id="btn-close-drawer">✕</button>
     </div>
 
+    ${prov ? fightPanelHtml(prov.id) : ''}
+
     <div style="display:flex;align-items:center;justify-content:space-between;">
       ${badge}
       <span style="font-size:11px;color:var(--muted);">Перевес сил: <strong style="color:#fff;">x${ratio.toFixed(1)}</strong></span>
     </div>
+
+    ${countryFactsHtml(tid, 6)}
+
+    ${foreignEconomyHtml(tid)}
 
     ${dipBox}
 
@@ -365,6 +389,10 @@ function renderForeignDrawer(tid, prov) {
         </button>
         <div class="order-hint">
           Мир закрепит захваченные провинции за теми, кто ими владеет. Если ${c.name} сильнее и побеждает, мира можно добиться только выплатой.
+        </div>
+      ` : allyBloc ? `
+        <div class="order-hint">
+          ${c.name} — ваш союзник: ${BLOC_DEFS[allyBloc].name}. Воевать с членами своего блока нельзя. Чтобы разорвать этот союз, нужно выйти из ${blocGen(allyBloc)} (кнопка 🏛).
         </div>
       ` : rel.status === 'ally' ? `
         <button class="btn btn-crimson" id="btn-break-ally"><span>💔 Разорвать союз</span></button>
@@ -392,9 +420,11 @@ function renderForeignDrawer(tid, prov) {
   drawer.classList.add('open');
 
   document.getElementById('btn-close-drawer').onclick = () => { game.selectedProvId = null; drawer.classList.remove('open'); };
+  bindFightPanel(drawer);
 
   const bWar = document.getElementById('btn-war');
   if (bWar) bWar.onclick = () => declareWar(game.playerId, tid);
+  bindForeignEconomy(tid);
 
   const bPeace = document.getElementById('btn-peace');
   if (bPeace) bPeace.onclick = () => {
@@ -539,10 +569,16 @@ function showHelpModal() {
       <div><strong>🕊️ Частичный захват:</strong> во время войны отжмите нужные регионы и нажмите на врага → <em>«Мирный договор»</em>, чтобы навсегда оставить их себе!</div>
       <div><strong>🚜 Войска:</strong> пехота дёшева, но ест 🌾. Бронетехника (сила ×8) и авиация (×12, обходит форты) быстрее идут в поход, но требуют 🔩 на постройку и 🛢 на содержание. Без топлива техника воюет вполсилы.</div>
       <div><strong>🏪 Ресурсы:</strong> каждая провинция даёт 🌾 🛢 🔩 по богатству своих земель. Нехватку и излишки обменивайте на рынке. Голод косит армию.</div>
-      <div><strong>💾 Сохранение:</strong> автоматически раз в месяц и при закрытии вкладки; вручную — в меню ☰.</div>
+      <div><strong>⏳ Время:</strong> один игровой день — ${DAY_SECONDS} сек на скорости 1x (месяц ≈ 7,5 мин). Скорости ⏸ / 1x / 2x / 5x / 20x — кнопкой в шапке, пробел — пауза. Армия идёт к соседу 4–12 дней (морем 5–16), техника до 2 раз быстрее.</div>
+      <div><strong>⚔️ Бои:</strong> атака не решается мгновенно — у провинции начинается бой (⚔️ на карте). Равные силы бьются ~29 дней (~7 мин на 1x), перевес ×1,5 — ~16 дней, ×2 — ~11, ×4 — ~4. Нажмите на провинцию с боем: видны силы, потери и прогноз; можно подкрепить из соседних провинций или отступить. Войска, нанятые в осаждённой провинции, сразу идут в бой.</div>
+      <div><strong>💾 Сохранение:</strong> автоматически раз в 10 игровых дней и при закрытии вкладки; вручную — в меню ☰ (там же автопауза).</div>
             <div><strong>🤝 Дипломатия:</strong> ИИ взвешивает силы, ход войны и свои интересы. Сильный и побеждающий враг не примет мир, а союз заключают, когда есть общий враг, общая угроза или выгода объединить силы. Причины отказа показываются в окне.</div>
       <div><strong>🏅 Репутация:</strong> разрыв союза и нападения на слабых её снижают, а с плохой репутацией вам не верят.</div>
       <div><strong>👑 Капитуляция:</strong> захват столицы + ≥70% провинций врага мгновенно покоряет всю страну. Цель — 60% мира.</div>
+      ${scenarioActive() ? `<div><strong>🏛 Мир 2010:</strong> границы, экономика (по ВВП) и армии — как в 2010 году. Члены военного блока (НАТО, ОДКБ, оборонные договоры) защищают друг друга, если на одного из них напали, но не обязаны помогать тому, кто напал сам. Воевать со своим блоком нельзя, сначала нужно выйти из него (🏛). ИИ не нападает на ядерные державы. Карта блоков — кнопка режима карты.</div>
+      <div><strong>🏗 Экономика (Мир 2010):</strong> доход идёт от ВВП, торговых соглашений и общих рынков блоков. В своей провинции стройте заводы, порты, нефтепромыслы, агрохолдинги, финансовые центры, технопарки и курорты — они добавляют ВВП и ресурсы. Порт даёт ещё одно торговое соглашение. Секторы, рост и партнёры — в окне 🏛.</div>
+      <div><strong>📢 Заявления и отношения:</strong> в панели чужой страны можно подписать торговое соглашение, ввести эмбарго или сделать заявление — от похвалы до угрозы. Оно меняет отношение адресата, его друзей и противников, а от отношения зависят торговля, союзы и пакты. Карта «💬 Отнош.» показывает, кто как к вам относится.</div>
+      <div><strong>🌐 Мировая политика:</strong> кризисы (бедствия, долговые кризисы, протесты, ядерные программы, пограничные инциденты, перевороты) — выбирайте позицию, от неё зависят отношения и развязка. ООН: Совбез с правом вето у пятёрки, Генассамблея, резолюции об осуждении, прекращении огня, санкциях и приёме новых членов; можно вносить свои. «Вступление»: заявки в НАТО, ЕС, ОДКБ и другие организации — условия, переговоры, голосование членов.</div>` : ''}
     </div>
     <div class="modal-actions"><button class="btn btn-sky" id="m-ok">Понятно</button></div>
   `;

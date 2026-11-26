@@ -10,9 +10,9 @@
 // -----------------------------------------------------------------------
 const SAVE_KEY = 'gegemon.save';
 const PREV_KEY = 'gegemon.save.prev'; // предыдущая партия: не затирается, когда начинаешь новую
-const SAVE_VERSION = 4;
-const PROV_SAVE_FIELDS = ['ownerId', 'isCapital', 'troops', 'tanks', 'air', 'fort', 'economy', 'draft'];
-const COUNTRY_SAVE_FIELDS = ['money', 'diplo', 'alive', 'isAI', 'capitalProvId', 'aiAggression', 'res', 'starving', 'noFuel', 'honor', 'grudge', 'warPlan', 'offerUntil'];
+const SAVE_VERSION = 8;
+const PROV_SAVE_FIELDS = ['ownerId', 'isCapital', 'troops', 'tanks', 'air', 'fort', 'economy', 'draft', 'gdp', 'pop', 'bld', 'bq'];
+const COUNTRY_SAVE_FIELDS = ['money', 'diplo', 'alive', 'isAI', 'capitalProvId', 'aiAggression', 'res', 'starving', 'noFuel', 'honor', 'grudge', 'warPlan', 'offerUntil', 'blocs', 'regime', 'stmtCd', 'un', 'nukes', 'mods', 'applyBlock', 'ceasefireUntil', 'interventionUntil'];
 const MARCH_SAVE_FIELDS = ['ownerId', 'fromId', 'toId', 'troops', 'tanks', 'air', 'isAttack', 'isSea', 'progress', 'duration'];
 
 function pickFields(obj, fields) {
@@ -39,10 +39,23 @@ function buildSaveData() {
     sendPercent: game.sendPercent,
     mapMode: game.mapMode,
     victoryShown: game.victoryShown,
+    scenario: game.scenario || null,
     countries: game.countries.map((c) => pickFields(c, COUNTRY_SAVE_FIELDS)),
     provinces: game.provinces.map((p) => (p ? pickFields(p, PROV_SAVE_FIELDS) : null)),
-    relations: [...game.relations.entries()],
+    // нейтральные пары без истории не пишем: getRelation создаст их заново (сохранение в разы меньше)
+    relations: [...game.relations.entries()].filter(([, r]) => !(r.status === 'neutral' && r.lastWar === undefined && !r.allyBlockUntil &&
+      !r.pactBlockUntil && !r.warScoreA && !r.warScoreB && !r.aggressor && !r.pactUntil)),
+    // Мир 2010: торговые соглашения, след событий в отношениях, эмбарго
+    trade: game.trade ? [...game.trade] : null,
+    opDelta: game.opDelta ? [...game.opDelta.entries()] : null,
+    tradeBlock: game.tradeBlock ? [...game.tradeBlock.entries()] : null,
+    // мировая политика: заявки, ООН, кризисы, кредиты
+    politics: game.un ? { applications: game.applications, un: game.un, crises: game.crises, crisisLog: game.crisisLog,
+      crisisSeeds: game.crisisSeeds, crisisNext: game.crisisNext, loans: game.loans } : null,
     marches: game.marches.map((m) => pickFields(m, MARCH_SAVE_FIELDS)),
+    fights: game.fights,
+    nextFightId: game.nextFightId,
+    totalDays: game.totalDays,
     events: game.events
   };
 }
@@ -151,6 +164,23 @@ function migrateSave(data) {
     for (const sp of data.provinces || []) if (sp && sp.draft === undefined) sp.draft = 1;
     data.v = 4;
   }
+  // v4 → v5: сценарии (режим «Мир 2010»); старые партии — песочница
+  if (data.v < 5) {
+    data.scenario = null;
+    data.v = 5;
+  }
+  // v5 → v6: стратегическое время — марши в днях (раньше в секундах при 1x: месяц = 5,2 с), затяжные бои
+  if (data.v < 6) {
+    for (const m of data.marches || []) m.duration = Math.max(2, Math.min(16, (m.duration || 1) * 30 / 5.2));
+    data.fights = [];
+    data.nextFightId = 1;
+    data.totalDays = (data.totalMonths || 0) * 30;
+    data.v = 6;
+  }
+  // v6 → v7: геоэкономика «Мира 2010» (ВВП провинций, постройки, торговля, отношения). Недостающее берётся из сценария.
+  if (data.v < 7) data.v = 7;
+  // v7 → v8: мировая политика (ООН, кризисы, заявки в организации); в старых партиях берётся стартовая из сценария
+  if (data.v < 8) data.v = 8;
   return data;
 }
 
@@ -168,10 +198,14 @@ function describeSave(data) {
   const c = game.countries[data.playerId];
   const owned = data.provinces.reduce((n, p) => n + (p && p.ownerId === data.playerId ? 1 : 0), 0);
   const pct = (owned / (game.provinces.length - 1)) * 100;
-  return `${c.flag} <strong>${c.name}</strong> • ${MONTHS_RU[data.month]} ${data.year} • ${pct.toFixed(1)}% мира`;
+  const mode = data.scenario && SCENARIOS[data.scenario] ? ` • 🏛 ${SCENARIOS[data.scenario].title}` : '';
+  return `${c.flag} <strong>${c.name}</strong> • ${MONTHS_RU[data.month]} ${data.year} • ${pct.toFixed(1)}% мира${mode}`;
 }
 
 function applySave(data) {
+  // Сначала мир приводится к основе партии (песочница или сценарий), потом поверх ложатся сохранённые поля
+  if (data.scenario && SCENARIOS[data.scenario]) applyScenario(data.scenario);
+  else restoreBaseline();
   for (const c of game.countries) c.provinces = [];
   data.countries.forEach((sc, i) => {
     Object.assign(game.countries[i], sc);
@@ -183,8 +217,18 @@ function applySave(data) {
     game.countries[p.ownerId].provinces.push(i);
   });
   game.relations = new Map(data.relations);
+  if (data.scenario) {
+    // в старых партиях «Мира 2010» (до v7) остаются стартовые торговые связи и отношения сценария
+    if (data.trade) game.trade = new Set(data.trade);
+    if (data.opDelta) game.opDelta = new Map(data.opDelta);
+    if (data.tradeBlock) game.tradeBlock = new Map(data.tradeBlock);
+    if (data.politics) Object.assign(game, data.politics);   // иначе (старые партии) — стартовое состояние из сценария
+  }
   rebuildDiploIndex();
   game.marches = data.marches;
+  game.fights = data.fights || [];
+  game.nextFightId = data.nextFightId || 1;
+  game.totalDays = data.totalDays || 0;
   game.events = data.events || [];
 
   game.playerId = data.playerId;
@@ -317,6 +361,13 @@ function showMenuModal() {
     <div class="modal-body" style="display:flex;flex-direction:column;gap:8px;">
       <div style="color:#94a3b8;font-size:11px;">💾 Хранилище: ${storageLabel()}</div>
       <div style="color:#94a3b8;">🏅 Репутация: <b style="color:#f8fafc;">${Math.round(game.countries[game.playerId].honor)}</b> • союзников: ${alliesOf(game.playerId).length}</div>
+      <div class="ap-box">
+        <div style="color:#94a3b8;font-size:11px;margin-bottom:4px;">⏸ Автопауза, когда:</div>
+        <label><input type="checkbox" data-ap="war" ${autoPause.war ? 'checked' : ''}> вам объявили войну</label>
+        <label><input type="checkbox" data-ap="attacked" ${autoPause.attacked ? 'checked' : ''}> враг атакует вашу провинцию</label>
+        <label><input type="checkbox" data-ap="fightEnd" ${autoPause.fightEnd ? 'checked' : ''}> ваш бой закончился</label>
+        <div style="color:#94a3b8;font-size:11px;margin-top:4px;">Предложения мира и союза всегда ставят игру на паузу. Пробел — пауза/продолжить.</div>
+      </div>
       <button class="btn btn-sky" id="mn-save">💾 Сохранить игру</button>
       <button class="btn" id="mn-export">⬇ Сохранить в файл</button>
       <button class="btn" id="mn-import">📂 Загрузить из файла</button>
@@ -327,6 +378,7 @@ function showMenuModal() {
   `;
   modalBackdrop.classList.add('visible');
   document.getElementById('m-ok').onclick = closeModal;
+  modalBox.querySelectorAll('[data-ap]').forEach((cb) => { cb.onchange = () => { autoPause[cb.dataset.ap] = cb.checked; saveAutoPause(); }; });
   document.getElementById('mn-save').onclick = () => { closeModal(); saveGame(false); };
   document.getElementById('mn-export').onclick = () => { closeModal(); exportSaveToFile(); };
   document.getElementById('mn-import').onclick = importSaveFromFile;

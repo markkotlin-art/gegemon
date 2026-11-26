@@ -10,21 +10,17 @@ function processMonth() {
   game.totalMonths++;
   if (game.month >= 12) { game.month = 0; game.year++; }
 
+  // доход, ресурсы и призыв начисляются каждый день (processDay в battle.js); здесь — месячные дела
   for (const c of game.countries) {
     if (!c.alive) continue;
-    const st = getCountryStats(c.id);
-    c.money += st.income;
     c.diplo = Math.min(100, c.diplo + 3);
     processEconomy(c);
-    for (const pid of c.provinces) {
-      const p = game.provinces[pid];
-      // при голоде новобранцев нет
-      if (!c.starving) p.troops += provDraftGrowth(p);
-    }
   }
   for (const [, rel] of game.relations) {
     if (rel.status === 'pact' && rel.pactUntil <= game.totalMonths) rel.status = 'neutral';
   }
+  processGeoEconomyMonth();
+  processWorldOrderMonth();
   processDiplomacyMonth();
   updateHud();
   saveGame(true);
@@ -79,14 +75,15 @@ function aiAnalyze(c) {
   return { enemies, staging, front, border, interior, inWar: enemies.size > 0 };
 }
 
-function runAIForCountry(c) {
+// econ — найм и стройка (редко, как в прежнем темпе), mil — бои, переброски, наступления (часто). См. processDay.
+function runAIForCountry(c, econ = true, mil = true) {
   if (!c.alive || c.provinces.length === 0) return;
   const A = aiAnalyze(c);
   const { enemies, front, border, interior, inWar } = A;
   const preparing = !inWar && A.staging !== null;
 
   // ---- Инвестиции и найм ----
-  if (c.money >= 160) {
+  if (econ && c.money >= 160) {
     let pool;
     if (inWar || preparing) pool = front.length ? front : border;
     else pool = border;
@@ -98,24 +95,38 @@ function runAIForCountry(c) {
     } else {
       targetP = pool[Math.floor(Math.random() * pool.length)];
     }
-    if (inWar || preparing || Math.random() < 0.65) {
+    if (inWar || preparing || Math.random() < (scenarioActive() ? 0.4 : 0.65)) {   // в мирное время Мира 2010 больше строят
       const wantTech = inWar || preparing ? 0.45 : 0.18;
       if (c.money >= 500 && Math.random() < wantTech) {
         const type = Math.random() < 0.7 ? 'tank' : 'air';
         const n = type === 'tank' ? 20 : 8;
-        if (canAffordUnits(c.id, type, n)) buyUnits(c.id, targetP.id, type, n);
+        // Техника без топлива воюет вполсилы: ИИ покупает её, только если сможет заправить —
+        // своей добычи хватает или казны хватит докупать топливо на рынке хотя бы полгода
+        const upkeep = n * FUEL_UPKEEP[type === 'tank' ? 'tanks' : 'air'];
+        const fuelNet = countryResFlow(c.id).net.fuel - upkeep;
+        const fuelOk = fuelNet >= 0 || c.money - Math.ceil(n * UNIT_TYPES[type].cost.money) >-fuelNet * RES_DEFS.fuel.buy * 6;
+        if (fuelOk && canAffordUnits(c.id, type, n)) buyUnits(c.id, targetP.id, type, n);
       } else {
-        const buy = Math.min(Math.floor(c.money / 120) * 100, 500);
+        // ИИ не нанимает пехоту, которую нечем кормить. В войне и при подготовке к ней — можно,
+        // если зерна на складе хватит ещё хотя бы на 3 месяца (во всех режимах; сценарный вариант — от «Геополитического режима»)
+        const flowNow = countryResFlow(c.id);
+        const netFood = flowNow.net.food;
+        const foodOk = netFood > 0 || ((inWar || preparing) && c.res.food > -netFood * 3);
+        // казну не выгребаем до дна: оставляем на полгода закупок недостающих зерна и топлива
+        const reserve = (Math.max(0, -netFood) * RES_DEFS.food.buy + Math.max(0, -flowNow.net.fuel) * RES_DEFS.fuel.buy) * 6;
+        const buy = foodOk ? Math.min(Math.floor(Math.max(0, c.money - reserve) / 120) * 100, 500) : 0;
         if (buy >= 100) { c.money -= (buy / 100) * 120; targetP.troops += buy; }
       }
     } else if (c.money >= 300 && c.res.steel >= 30 && targetP.fort === 0 && Math.random() < 0.28) {
       c.money -= 280; c.res.steel -= 30; targetP.fort = 1;
+    } else if (scenarioActive()) {
+      aiBuild(c);   // Мир 2010: заводы, порты, промыслы… вместо простого «+1 к экономике»
     } else if (c.money >= 250 && targetP.economy < 8 && Math.random() < 0.3) {
       c.money -= 230; targetP.economy++;
     }
   }
 
-  if (!inWar && !preparing) return;
+  if (!mil || (!inWar && !preparing)) return;
 
   // ---- Подтягивание резервов к фронту ----
   for (const ip of interior.concat(border)) {
@@ -128,6 +139,9 @@ function runAIForCountry(c) {
 
   if (!inWar) return;
 
+  // ---- Идущие бои: подкрепить или отступить ----
+  aiManageFights(c);
+
   // ---- Оборона: усиливаем провинции, которым угрожает превосходящий враг ----
   for (const fp of front) {
     if (fp._threat <= provPower(fp) * 0.9) continue;
@@ -138,9 +152,10 @@ function runAIForCountry(c) {
   }
 
   // ---- Наступление ----
+  if (Math.random() > AI_ATTACK_CHANCE) return;     // новые наступления — в прежнем темпе, бои и оборона ведутся чаще
   const margin = 1.3 - c.aiAggression * 0.25;     // насколько нужно превосходить врага на участке
   const maxAttacks = c.aiAggression > 0.6 ? 2 : 1;
-  let attacks = 0;
+  let attacks = attackingFightsOf(c.id);           // идущие бои и марши тоже считаются
   const attackers = front.slice().sort((x, y) => provPower(y) - provPower(x));
   for (const bp of attackers) {
     if (attacks >= maxAttacks) break;

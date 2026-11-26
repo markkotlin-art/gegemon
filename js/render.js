@@ -16,6 +16,8 @@ function getProvinceFillColor(p) {
     if (hasPact(ref, p.ownerId)) return '#2aa8c4';
     return '#3e4a5c';
   }
+  if (game.mapMode === 'blocs') return blocMapColor(p.ownerId);
+  if (game.mapMode === 'opinion') return opinionMapColor(p.ownerId);
   // Военная тепловая карта
   const t = Math.min(1, Math.log10(Math.max(10, provPower(p))) / 4.2);
   if (t < 0.5) {
@@ -171,6 +173,7 @@ function render() {
 
   // 10. Стрелки маршей и морских десантов
   drawMarches(z);
+  drawFights(z);
 
   // 11. Вспышки боёв
   drawBattles(z);
@@ -279,7 +282,7 @@ function drawMarches(z) {
     ctx.closePath();
     ctx.fill();
 
-    const lbl = `${m.isSea ? '⚓' : ''}${fmtNum(rawPower(m))}`;
+    const lbl = `${m.isSea ? '⚓' : ''}${fmtNum(rawPower(m))} · ${marchDaysLeft(m)}д`;
     ctx.font = `800 ${9.5 / z}px "Inter", sans-serif`;
     const tw = ctx.measureText(lbl).width + 8 / z;
     const bh = 13.5 / z;

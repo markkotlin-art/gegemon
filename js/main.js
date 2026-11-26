@@ -19,13 +19,18 @@ function update(dt) {
 
   if (game.phase !== 'playing' || game.speed === 0) return;
 
-  const simDt = dt * game.speed;
-  game.dayFloat += simDt * (30 / 5.2);
-  if (game.dayFloat >= 30) { game.dayFloat -= 30; processMonth(); }
+  // Время идёт по дням: DAY_SECONDS реальных секунд на день при скорости 1x (battle.js)
+  const days = (dt * game.speed) / DAY_SECONDS;
+  const prevDay = Math.floor(game.dayFloat);
+  game.dayFloat += days;
+  if (Math.floor(game.dayFloat) > prevDay) {
+    processDay();
+    if (game.dayFloat >= 30) { game.dayFloat -= 30; processMonth(); }
+  }
 
   for (let i = game.marches.length - 1; i >= 0; i--) {
     const m = game.marches[i];
-    m.progress += simDt / m.duration;
+    m.progress += days / m.duration;
     if (m.progress >= 1) { game.marches.splice(i, 1); resolveMarch(m); }
   }
   for (let i = game.battles.length - 1; i >= 0; i--) {
@@ -33,8 +38,6 @@ function update(dt) {
     if (game.battles[i].life <= 0) game.battles.splice(i, 1);
   }
 
-  game.aiTimer += simDt;
-  if (game.aiTimer >= 1.1) { game.aiTimer = 0; processAIStep(); updateHud(); }
 }
 
 // Кадр нужен «на полной скорости», только когда на карте что-то движется или пользователь взаимодействует.
@@ -42,7 +45,7 @@ function update(dt) {
 let lastRenderTs = 0, lastCamSig = '';
 function needsFullRate() {
   if (game.phase === 'loading') return true;
-  if (game.marches.length || game.battles.length) return true;
+  if (game.marches.length || game.battles.length || game.fights.length) return true;
   if (game.selectedProvId || game.hoveredProvId) return true;
   if (game.phase === 'select' && game.selectedCountryId !== null) return true;
   const c = game.cam;
@@ -63,7 +66,7 @@ function loop(ts) {
   window.requestAnimationFrame(loop);
 }
 
-const SPEED_CYCLE = [1, 2, 3, 0];
+const SPEED_CYCLE = SPEED_STEPS.concat([0]);
 function updateSpeedBtn() {
   const btn = document.getElementById('btn-speed');
   btn.classList.remove('active', 'paused');
@@ -74,8 +77,11 @@ function updateSpeedBtn() {
 const MAP_MODES = [
   { id: 'political', label: '🗺️ Полит.' },
   { id: 'diplomatic', label: '🤝 Дипл.' },
+  { id: 'blocs', label: '🛡 Блоки', scenarioOnly: true },
+  { id: 'opinion', label: '💬 Отнош.', scenarioOnly: true },
   { id: 'military', label: '⚔️ Армии' }
 ];
+function availableMapModes() { return MAP_MODES.filter((m) => !m.scenarioOnly || scenarioActive()); }
 
 function setupInputs() {
   let down = false, dragged = false;
@@ -178,7 +184,8 @@ function setupInputs() {
     if (e.code === 'KeyD' || e.code === 'ArrowRight') panKeys.d = true;
     if (e.code === 'Space' && game.phase === 'playing') {
       e.preventDefault();
-      game.speed = game.speed === 0 ? 1 : 0;
+      if (game.speed === 0) game.speed = game.lastSpeed || 1;   // пробел возвращает прежнюю скорость
+      else { game.lastSpeed = game.speed; game.speed = 0; }
       sfx.click(); updateSpeedBtn();
     }
     if (e.code === 'Escape') {
@@ -209,10 +216,12 @@ function setupInputs() {
   });
 
   document.getElementById('btn-mapmode').addEventListener('click', (e) => {
-    const idx = MAP_MODES.findIndex((m) => m.id === game.mapMode);
-    const next = MAP_MODES[(idx + 1) % MAP_MODES.length];
+    const modes = availableMapModes();
+    const idx = modes.findIndex((m) => m.id === game.mapMode);
+    const next = modes[(idx + 1) % modes.length];
     game.mapMode = next.id;
     e.currentTarget.textContent = next.label;
+    updateMapLegend();
     sfx.click();
   });
 
@@ -223,6 +232,8 @@ function setupInputs() {
   document.getElementById('btn-help').addEventListener('click', showHelpModal);
   document.getElementById('btn-menu').addEventListener('click', showMenuModal);
   document.getElementById('btn-market').addEventListener('click', () => { if (game.phase === 'playing') showMarketModal(); });
+  document.getElementById('btn-state').addEventListener('click', () => showStateModal());
+  document.getElementById('btn-world').addEventListener('click', () => showWorldModal());
   document.getElementById('btn-continue').addEventListener('click', showContinueModal);
 
   document.getElementById('btn-center-cap').addEventListener('click', () => {

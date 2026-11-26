@@ -18,12 +18,15 @@ function getCountryStats(cid) {
   for (const m of game.marches) {
     if (m.ownerId === cid) addArmy(units, m);
   }
+  // В «Мире 2010» доход считается от ВВП, торговли и общих рынков (geoeconomy.js)
+  let income = Math.round(28 + eco * 13);
+  if (scenarioActive() && game.incK) income = scenarioIncome(c);
   return {
     army: Math.floor(rawPower(units)),
     units,
     eco,
     provCount: c.provinces.length,
-    income: Math.round(28 + eco * 13),
+    income,
     manpower: c.starving ? 0 : manpower
   };
 }
@@ -105,10 +108,12 @@ function declareWar(atkId, defId, silent = false, joined = false) {
   if (!silent && (atkId === game.playerId || defId === game.playerId)) {
     sfx.war();
     pushToast(`⚔️ ВОЙНА: ${cA.flag} ${cA.name} против ${cB.flag} ${cB.name}!`, 'war');
+    if (defId === game.playerId && autoPause.war) pauseGame(`${cA.name} объявила вам войну`);
   }
   const cap = game.provinces[cB.capitalProvId || cB.provinces[0]];
   addNews(`⚔️ ${cA.flag} ${cA.name} объявила войну ${cB.flag} ${cB.name}`, 'war', cap?.cx ?? null, cap?.cy ?? null);
 
+  if (scenarioActive()) onWarDeclared(atkId, defId, joined);
   callAllies(atkId, defId);
   refreshDrawer();
 }
@@ -122,6 +127,31 @@ function callAllies(atkId, defId) {
     const side = allyDef ? defId : atkId;
     const foe = allyDef ? atkId : defId;
     if (isAtWar(o.id, foe)) continue;
+
+    // Военный блок (НАТО, ОДКБ, оборонные договоры): обязателен только для защиты жертвы нападения
+    const bloc = sharedMilBloc(o.id, side);
+    if (bloc) {
+      const startedBy = getRelation(atkId, defId).aggressor;
+      if (allyDef && startedBy === atkId) {
+        // нападение на члена блока — коллективная оборона
+        let join = o.id === game.playerId;
+        if (!join) {
+          let p = 0.88 + (o.honor - 70) / 200;
+          if (enemiesOf(o.id).length >= 2) p -= 0.3;
+          join = Math.random() < p;
+          if (!join) {
+            o.honor = Math.max(0, o.honor - 10);
+            addNews(`🫥 ${nm(o.id)} не выполнила обязательства ${blocGen(bloc)} перед ${nm(side)}`, 'war');
+          }
+        }
+        if (join) declareWar(o.id, foe, true, true);
+      } else if (o.id === game.playerId) {
+        if (allyAtk && startedBy === atkId) pushToast(`${nm(side)} сама напала на ${nm(foe)}: это не оборона, обязательства ${blocGen(bloc)} не действуют.`);
+      } else if (allyAtk && startedBy === atkId && Math.random() < 0.04) {
+        declareWar(o.id, foe, true, true);   // «коалиция желающих» — только к исходному нападению, без цепной реакции
+      }
+      continue;
+    }
 
     let join = o.id === game.playerId;
     // страна, уже воюющая на двух фронтах, не вступает в третью войну (кроме обороны союзника-жертвы)
@@ -152,6 +182,7 @@ function signPeace(a, b, reparationsToA = 0) {
   const rel = getRelation(a, b);
   if (rel.status !== 'war') return;
   setRelStatus(a, b, 'pact');
+  if (scenarioActive()) invalidateIncome(a, b);   // после войны снова работают курорты
   rel.pactUntil = game.totalMonths + 12;
   rel.lastWar = game.totalMonths;
 
@@ -295,11 +326,8 @@ function sendTroops(fromId, toId, ratio) {
   pFrom.tanks = (pFrom.tanks || 0) - send.tanks;
   pFrom.air = (pFrom.air || 0) - send.air;
   const isSea = pFrom.seaNeighbors.has(toId) && !pFrom.neighbors.has(toId);
-  const dist = Math.hypot(pTo.cx - pFrom.cx, pTo.cy - pFrom.cy);
-  // Техника и авиация идут быстрее пехоты
-  const mobileShare = (send.tanks * TANK_POWER + send.air * AIR_POWER) / sendPower;
-  const speedK = 1 - MOBILE_SPEED_BONUS * mobileShare;
-  const duration = Math.max(0.8, Math.min(4.2, (dist / (isSea ? 72 : 105)) * speedK));
+  // длительность в игровых днях; техника и авиация идут быстрее пехоты
+  const duration = marchDays(pFrom, pTo, send, isSea);
 
   game.marches.push({
     ownerId: pFrom.ownerId,
@@ -314,6 +342,9 @@ function sendTroops(fromId, toId, ratio) {
     duration
   });
   if (pFrom.ownerId === game.playerId) sfx.march();
+  else if (pTo.ownerId === game.playerId && pTo.ownerId !== pFrom.ownerId) {
+    pushToast(`🚩 ${game.countries[pFrom.ownerId].flag} Враг идёт на ${pTo.name}: будет через ${Math.ceil(duration)} дн.`, 'war');
+  }
   return true;
 }
 
@@ -331,43 +362,8 @@ function resolveMarch(m) {
     return;
   }
 
-  // Сила сторон. Авиация обходит часть бонуса фортов; без топлива техника слабее.
-  const atkRaw = armyPower(m, m.ownerId);
-  const airShare = atkRaw > 0 ? ((m.air || 0) * AIR_POWER * (game.countries[m.ownerId].noFuel ? NO_FUEL_MULT : 1)) / atkRaw : 0;
-  const fortBonus = target.fort * 0.45 * (1 - AIR_FORT_PIERCE * airShare);
-  const defBonus = 1 + fortBonus + (target.isCapital ? 0.2 : 0) + (m.isSea ? 0.15 : 0);
-  const defRaw = armyPower(target, target.ownerId);
-  const atkPower = atkRaw * (0.9 + Math.random() * 0.2);
-  const defPower = defRaw * defBonus * (0.9 + Math.random() * 0.2);
-
-  let atkLoss, defLoss, captured = false;
-  if (atkPower > defPower) {
-    captured = true;
-    defLoss = Math.floor(defRaw);
-    const lossFrac = Math.min(0.95, (defPower / (atkPower || 1)) * 0.86);
-    atkLoss = Math.floor(atkRaw * lossFrac);
-    const surv = scaleArmy(m, 1 - lossFrac);
-    surv.troops = Math.max(8, surv.troops);
-    transferProvince(m.toId, m.ownerId, surv);
-  } else {
-    atkLoss = Math.floor(atkRaw);
-    const lossFrac = Math.min(0.95, (atkPower / (defPower || 1)) * 0.88);
-    defLoss = Math.floor(defRaw * lossFrac);
-    const left = scaleArmy(target, 1 - lossFrac);
-    target.troops = Math.max(5, left.troops);
-    target.tanks = left.tanks;
-    target.air = left.air;
-  }
-
-  const fromP = game.provinces[m.fromId];
-  game.battles.push({
-    x: fromP ? fromP.cx * 0.32 + target.cx * 0.68 : target.cx,
-    y: fromP ? fromP.cy * 0.32 + target.cy * 0.68 : target.cy,
-    atkLoss, defLoss, captured,
-    life: 1.5, maxLife: 1.5
-  });
-
-  if (m.ownerId === game.playerId || target.ownerId === game.playerId) sfx.battle();
+  // Исход решается не сразу: начинается затяжной бой (battle.js)
+  startFight(m);
 }
 
 // Союзники стороны `side`, воевавшие против `foe` по обязательству, выходят из войны, когда мир заключён

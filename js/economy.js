@@ -45,9 +45,10 @@ function provVariety(pid, salt) {
 function provinceYield(p) {
   const owner = game.countries[p.origOwnerId]; // богатство земли не зависит от того, кто её захватил
   const prof = RES_PROFILE[owner.iso] || RES_PROFILE_DEFAULT;
+  const mul = owner.resMul;   // поправка сценария (например, страна с огромной армией и бедной землёй)
   const out = {};
   RES_KEYS.forEach((k, i) => {
-    out[k] = p.economy * prof[i] * RES_BASE_YIELD[k] * provVariety(p.id, i + 1);
+    out[k] = p.economy * prof[i] * RES_BASE_YIELD[k] * provVariety(p.id, i + 1) * (mul ? mul[i] : 1);
   });
   return out;
 }
@@ -92,21 +93,26 @@ function initResources() {
 }
 
 // Ежемесячная обработка ресурсов одной страны
+// Ежедневно (после дневного прихода/расхода): голод и нехватка топлива включаются и выключаются сразу
+function updateSupplyFlags(c) {
+  const wasStarving = c.starving, hadNoFuel = c.noFuel;
+  if (c.res.food < 0) { c.res.food = 0; c.starving = true; } else if (c.res.food >= 1) c.starving = false;
+  if (c.res.fuel < 0) { c.res.fuel = 0; c.noFuel = true; } else if (c.res.fuel >= 1) c.noFuel = false;
+  if (c.id === game.playerId) {
+    if (c.starving && !wasStarving) pushToast('🌾 ГОЛОД! Армия теряет людей. Купите продовольствие на рынке.', 'war');
+    if (c.noFuel && !hadNoFuel) pushToast('🛢 Нет топлива: техника и авиация воюют вполсилы.', 'war');
+    if (!c.starving && wasStarving) pushToast('🌾 Голод закончился.', 'good');
+    if (!c.noFuel && hadNoFuel) pushToast('🛢 Топливо восстановлено.', 'good');
+  }
+}
+
+// Раз в месяц: торговля ИИ, политика призыва (сценарий), потери от голода, предупреждение игроку.
+// Сам приход и расход ресурсов идёт ежедневно (processEconomyDay в battle.js).
 function processEconomy(c) {
   const flow = countryResFlow(c.id);
-  const cap = resCap(c);
-  for (const k of RES_KEYS) c.res[k] = Math.min(cap, c.res[k] + flow.prod[k]);
 
-  c.res.food -= flow.use.food;
-  c.res.fuel -= flow.use.fuel;
-
-  if (c.isAI) aiTrade(c, flow);
-
-  const wasStarving = c.starving, hadNoFuel = c.noFuel;
-  c.starving = c.res.food < 0;
-  c.noFuel = c.res.fuel < 0;
-  if (c.starving) c.res.food = 0;
-  if (c.noFuel) c.res.fuel = 0;
+  if (c.isAI) { aiTrade(c, flow); if (scenarioActive()) aiDraftPolicy(c, flow); }
+  updateSupplyFlags(c);
 
   if (c.starving) {
     for (const pid of c.provinces) {
@@ -121,10 +127,6 @@ function processEconomy(c) {
     const low = !c.starving && monthsLeft <= 3;
     if (low && !c.foodWarned) pushToast(`🌾 Зерна хватит ещё примерно на ${Math.max(1, Math.floor(monthsLeft))} мес. Докупите на рынке.`, 'war');
     c.foodWarned = low;
-    if (c.starving && !wasStarving) pushToast('🌾 ГОЛОД! Армия теряет людей. Купите продовольствие на рынке.', 'war');
-    if (c.noFuel && !hadNoFuel) pushToast('🛢 Нет топлива: техника и авиация воюют вполсилы.', 'war');
-    if (!c.starving && wasStarving) pushToast('🌾 Голод закончился.', 'good');
-    if (!c.noFuel && hadNoFuel) pushToast('🛢 Топливо восстановлено.', 'good');
   }
 }
 
@@ -161,14 +163,31 @@ function marketTrade(cid, res, dir, amount = MARKET_LOT) {
   return true;
 }
 
+// ИИ не призывает больше, чем может прокормить: при нехватке зерна и пустой казне сокращает призыв,
+// при излишке возвращает полный. Иначе малые страны через несколько лет садятся на голодный паёк.
+function aiDraftPolicy(c, flow) {
+  const net = flow.net.food;
+  const monthsLeft = net < 0 ? c.res.food / -net : Infinity;
+  const canBuy = c.money >= MARKET_LOT * RES_DEFS.food.buy * 2 + 60;
+  let level = 1;
+  if (net < 0 && monthsLeft < 10) level = canBuy ? 0.5 : (net < -flow.prod.food * 0.2 ? 0 : 0.25);
+  else if (net < flow.prod.food * 0.08) level = 0.5;   // запас на исходе — растим армию осторожно
+  for (const pid of c.provinces) game.provinces[pid].draft = level;
+}
+
 // Простая торговля ИИ: докупает нехватку, продаёт излишек
 function aiTrade(c, flow) {
   const cap = resCap(c);
-  const need = { food: flow.use.food * 3, fuel: flow.use.fuel * 3 };
+  // При дефиците держим запас на 3–4 месяца: докупаем сразу нужное количество, а не по одному лоту
   for (const k of ['food', 'fuel']) {
-    if (c.res[k] < need[k] && c.res[k] < MARKET_LOT && c.money >= MARKET_LOT * RES_DEFS[k].buy + 60) {
-      marketTrade(c.id, k, 'buy', MARKET_LOT);
-    }
+    const deficit = Math.max(0, -flow.net[k]);
+    if (deficit <= 0 || c.res[k] >= deficit * 3) continue;
+    const want = Math.ceil(deficit * 4 - c.res[k]);
+    const afford = Math.floor(Math.max(0, c.money - 100) / RES_DEFS[k].buy);
+    const room = Math.floor(cap - c.res[k]);
+    const amount = Math.min(want, afford, room);
+    // мелкий дефицит (меньше 10 в месяц) тоже закрываем, иначе страна сидит без топлива годами
+    if (amount >= 1 && (amount >= 10 || amount >= want)) marketTrade(c.id, k, 'buy', amount);
   }
   for (const k of RES_KEYS) {
     while (c.res[k] > cap * 0.6 && c.res[k] >= MARKET_LOT) marketTrade(c.id, k, 'sell', MARKET_LOT);
